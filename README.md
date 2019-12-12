@@ -1,27 +1,4 @@
-Advanced Computer Graphics — Homeworks
-======================================
+Nori Basecode for CMSC740 Advanced Computer Graphics
+====================================================
 
-Student name:
-
-Sciper number:
-
-
-## Build status
-
-**Visit [Travis CI](https://travis-ci.com) to get the build badge for your repository.**
-
-
-## Homework results
-
-| Homework   |  Links
-| ---------: | ---------------------------------------------
-| 1          | [report.html](results/homework-1/report.html)
-| 2          | [report.html](results/homework-2/report.html)
-| 3          | [report.html](results/homework-3/report.html)
-| 4          | [report.html](results/homework-4/report.html)
-| 5          | [report.html](results/homework-5/report.html)
-
-
-## Featured result
-
-Feel free to show off your best render here!
+This is the basecode for the [assignments in CMSC740, Spring 2020](http://www.cs.umd.edu/~zwicker/nori/#). The code is forked from Wenzel Jakob's [Nori project](https://github.com/wjakob/nori).
