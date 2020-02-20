@@ -30,6 +30,10 @@ NORI_NAMESPACE_BEGIN
  */
 class Accel {
 public:
+	typedef struct node {
+		node *child[8];
+		uint32_t *index, t, len;
+	} node;
     /**
      * \brief Register a triangle mesh for inclusion in the acceleration
      * data structure
@@ -38,8 +42,24 @@ public:
      */
     void addMesh(Mesh *mesh);
 
-    /// Build the acceleration data structure (currently a no-op)
+	node * alloc();
+
+	void getBoundingBoxes(BoundingBox3f *b, BoundingBox3f bbox) const;
+
+	void insert(node * x, BoundingBox3f bbox, uint32_t index, int depth);
+
+	void stat(node * x);
+
+	/// Build the acceleration data structure (currently a no-op)
     void build();
+
+	bool search(node * x, BoundingBox3f bbox, Ray3f & ray, Intersection &its, bool shadowRay, uint32_t &f) const;
+
+	bool search_(node * x, BoundingBox3f bbox, Ray3f & ray, Intersection & its, bool shadowRay, uint32_t & f) const;
+
+	bool bf(Ray3f & ray, Intersection & its, bool shadowRay, uint32_t & f) const;
+
+	//bool search_(node * x, BoundingBox3f bbox, Ray3f & ray, Intersection & its, bool shadowRay, uint32_t & f) const;
 
     /// Return an axis-aligned box that bounds the scene
     const BoundingBox3f &getBoundingBox() const { return m_bbox; }
@@ -68,6 +88,7 @@ public:
 private:
     Mesh         *m_mesh = nullptr; ///< Mesh (only a single one for now)
     BoundingBox3f m_bbox;           ///< Bounding box of the entire scene
+	node *root = nullptr;
 };
 
 NORI_NAMESPACE_END

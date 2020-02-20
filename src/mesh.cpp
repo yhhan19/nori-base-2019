@@ -87,6 +87,43 @@ bool Mesh::rayIntersect(uint32_t index, const Ray3f &ray, float &u, float &v, fl
     return t >= ray.mint && t <= ray.maxt;
 }
 
+
+bool Mesh::axis(Vector3f ex, const Vector3f *u, const Vector3f *v, Vector3f a) const {
+	float r = 0, min, max;
+	for (int k = 0; k < 3; k++)
+		r += ex.dot(u[k]) * fabs(u[k].dot(a));
+	for (int k = 0; k < 3; k++) {
+		float proj = v[k].dot(a);
+		if (k == 0 || proj > max) max = proj;
+		if (k == 0 || proj < min) min = proj;
+	}
+	if (max < -r || min > r) return false;
+	return true;
+}
+
+bool Mesh::boundingBoxIntersect(uint32_t index, const BoundingBox3f &box) const {
+	uint32_t i0 = m_F(0, index), i1 = m_F(1, index), i2 = m_F(2, index);
+	const Point3f p0 = m_V.col(i0), p1 = m_V.col(i1), p2 = m_V.col(i2);
+	Vector3f c = (box.min + box.max) / 2;
+	Vector3f ex = (box.max - box.min) / 2;
+	Vector3f v[3], e[3], u[3];
+	v[0] = p0 - c; v[1] = p1 - c; v[2] = p2 - c;
+	e[0] = v[1] - v[0]; e[1] = v[2] - v[1]; e[2] = v[0] - v[2];
+	u[0] = Vector3f(1.0f, 0.0f, 0.0f);
+	u[1] = Vector3f(0.0f, 1.0f, 0.0f);
+	u[2] = Vector3f(0.0f, 0.0f, 1.0f);
+	for (int i = 0; i < 3; i++) 
+		for (int j = 0; j < 3; j++) 
+			if (!axis(ex, u, v, u[i].cross(e[j])))
+				return false;
+	for (int i = 0; i < 3; i++) 
+		if (!axis(ex, u, v, u[i]))
+			return false;
+	if (!axis(ex, u, v, e[0].cross(e[1])))
+		return false;
+	return true;
+ }
+
 BoundingBox3f Mesh::getBoundingBox(uint32_t index) const {
     BoundingBox3f result(m_V.col(m_F(0, index)));
     result.expandBy(m_V.col(m_F(1, index)));

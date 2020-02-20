@@ -17,6 +17,7 @@
 */
 
 #include <nori/accel.h>
+#include <nori/timer.h>
 #include <Eigen/Geometry>
 
 NORI_NAMESPACE_BEGIN
@@ -28,8 +29,188 @@ void Accel::addMesh(Mesh *mesh) {
     m_bbox = m_mesh->getBoundingBox();
 }
 
+int innerN = 0, leafN = 0, triN = 0;
+
+Accel::node *Accel::alloc() {
+	node *x = new node;
+	for (int i = 0; i < 8; i++) 
+		x->child[i] = nullptr;
+	x->len = 10;
+	x->index = (uint32_t *)malloc(sizeof(uint32_t) * x->len);
+	for (uint32_t i = 0; i < x->len; i++)
+		x->index[i] = 0;
+	x->t = 0;
+	return x;
+}
+
+void Accel::getBoundingBoxes(BoundingBox3f *b, BoundingBox3f bbox) const {
+	float L[3], R[3], M[3];
+	for (int i = 0; i < 3; i++) {
+		L[i] = bbox.min[i];
+		R[i] = bbox.max[i];
+		M[i] = (bbox.min[i] + bbox.max[i]) / 2;
+	}
+	b[0] = BoundingBox3f(Point3f(L[0], L[1], L[2]), Point3f(M[0], M[1], M[2]));
+	b[1] = BoundingBox3f(Point3f(M[0], L[1], L[2]), Point3f(R[0], M[1], M[2]));
+	b[2] = BoundingBox3f(Point3f(L[0], M[1], L[2]), Point3f(M[0], R[1], M[2]));
+	b[3] = BoundingBox3f(Point3f(M[0], M[1], L[2]), Point3f(R[0], R[1], M[2]));
+	b[4] = BoundingBox3f(Point3f(L[0], L[1], M[2]), Point3f(M[0], M[1], R[2]));
+	b[5] = BoundingBox3f(Point3f(M[0], L[1], M[2]), Point3f(R[0], M[1], R[2]));
+	b[6] = BoundingBox3f(Point3f(L[0], M[1], M[2]), Point3f(M[0], R[1], R[2]));
+	b[7] = BoundingBox3f(Point3f(M[0], M[1], M[2]), Point3f(R[0], R[1], R[2]));
+}
+
+void Accel::insert(node *x, BoundingBox3f bbox, uint32_t index, int depth) {
+	if (depth == 16) {
+		if (x->t == x->len) {
+			x->len *= 2;
+			uint32_t *temp = (uint32_t *)malloc(sizeof(uint32_t) * x->len);
+			for (uint32_t i = 0; i < x->t; i++) {
+				temp[i] = x->index[i];
+			}
+			delete x->index;
+			x->index = temp;
+		}
+		x->index[x->t++] = index;
+	}
+	else {
+		if (x->child[0] == nullptr) {
+			if (x->t < x->len) {
+				x->index[x->t++] = index;
+			}
+			else {
+				BoundingBox3f b[8]; getBoundingBoxes(b, bbox);
+				for (int i = 0; i < 8; i++)
+					x->child[i] = alloc();
+				for (uint32_t i = 0; i < x->t; i++)
+					for (int j = 0; j < 8; j++) 
+						if (m_mesh->boundingBoxIntersect(x->index[i], b[j])) 
+							insert(x->child[j], b[j], x->index[i], depth + 1);
+				for (int i = 0; i < 8; i++) 
+					if (m_mesh->boundingBoxIntersect(index, b[i]))
+						insert(x->child[i], b[i], index, depth + 1);
+			}
+		}
+		else {
+			BoundingBox3f b[8]; getBoundingBoxes(b, bbox);
+			for (int i = 0; i < 8; i++) 
+				if (m_mesh->boundingBoxIntersect(index, b[i]))
+					insert(x->child[i], b[i], index, depth + 1);
+		}
+	}
+}
+
+void Accel::stat(node *x) {
+	if (x->child[0] == nullptr) {
+		leafN++;
+		triN += x->t;
+	}
+	else {
+		innerN++;
+		for (int i = 0; i < 8; i++)
+			stat(x->child[i]);
+	}
+}
+
 void Accel::build() {
-    /* Nothing to do here for now */
+	Timer timer;
+	root = alloc();
+	for (uint32_t idx = 0; idx < m_mesh->getTriangleCount(); ++idx) 
+		insert(root, m_bbox, idx, 0);
+	stat(root);
+	cout << "octree node size: " << sizeof(node) << "." << endl;
+	cout << leafN << " leaves, " << innerN << " inner nodes, " << (float)triN / leafN << " triangles per leaf." << endl;
+	cout << "done. (took " << timer.elapsedString() << ")" << endl;
+}
+
+bool Accel::search(node *x, BoundingBox3f bbox, Ray3f &ray, Intersection &its, bool shadowRay, uint32_t &f) const {
+	bool ret = false;
+	if (x->child[0] == nullptr) {
+		for (uint32_t i = 0; i < x->t; i++) {
+			float u, v, t;
+			if (m_mesh->rayIntersect(x->index[i], ray, u, v, t)) {
+				if (shadowRay) return true;
+				ray.maxt = its.t = t;
+				its.uv = Point2f(u, v);
+				its.mesh = m_mesh;
+				f = x->index[i];
+				ret = true;
+			}
+		}
+	}
+	else {
+		float near[8], far;
+		int index[8], t = 0;
+		BoundingBox3f b[8]; getBoundingBoxes(b, bbox);
+		for (int i = 0; i < 8; i++) {
+			if (b[i].rayIntersect(ray, near[i], far)) 
+				if (ray.mint <= far && near[i] <= ray.maxt)
+					index[t++] = i;
+		}
+		for (int i = 0; i < t; i ++) 
+			for (int j = i + 1; j < t; j ++)
+				if (near[index[i]] > near[index[j]]) {
+					int temp = index[i];
+					index[i] = index[j];
+					index[j] = temp;
+				}
+		for (int i = 0; i < t; i ++) {
+			if (near[index[i]] <= ray.maxt) {
+				bool res = search(x->child[index[i]], b[index[i]], ray, its, shadowRay, f);
+				if (shadowRay && res) return true;
+				ret = ret || res;
+			}
+		}
+	}
+	return ret;
+}
+
+bool Accel::search_(node *x, BoundingBox3f bbox, Ray3f &ray, Intersection &its, bool shadowRay, uint32_t &f) const {
+	bool ret = false;
+	if (x->child[0] == nullptr) {
+		for (uint32_t i = 0; i < x->t; i++) {
+			float u, v, t;
+			if (m_mesh->rayIntersect(x->index[i], ray, u, v, t)) {
+				if (shadowRay) return true;
+				ray.maxt = its.t = t;
+				its.uv = Point2f(u, v);
+				its.mesh = m_mesh;
+				f = x->index[i];
+				ret = true;
+			}
+		}
+	}
+	else {
+		BoundingBox3f b[8]; getBoundingBoxes(b, bbox);
+		for (int i = 0; i < 8; i++) {
+			if (b[i].rayIntersect(ray)) {
+				bool res = search_(x->child[i], b[i], ray, its, shadowRay, f);
+				if (shadowRay && res) return true;
+				ret = ret || res;
+			}
+		}
+	}
+	return ret;
+}
+
+bool Accel::bf(Ray3f &ray, Intersection &its, bool shadowRay, uint32_t &f) const {
+	bool foundIntersection = false;
+	/* Brute force search through all triangles */
+	for (uint32_t idx = 0; idx < m_mesh->getTriangleCount(); ++idx) {
+		float u, v, t;
+		if (m_mesh->rayIntersect(idx, ray, u, v, t)) {
+			/* An intersection was found! Can terminate
+			   immediately if this is a shadow ray query */
+			if (shadowRay)
+				return true;
+			ray.maxt = its.t = t;
+			its.uv = Point2f(u, v);
+			its.mesh = m_mesh;
+			f = idx;
+			foundIntersection = true;
+		}
+	}
+	return foundIntersection;
 }
 
 bool Accel::rayIntersect(const Ray3f &ray_, Intersection &its, bool shadowRay) const {
@@ -39,20 +220,12 @@ bool Accel::rayIntersect(const Ray3f &ray_, Intersection &its, bool shadowRay) c
     Ray3f ray(ray_); /// Make a copy of the ray (we will need to update its '.maxt' value)
 
     /* Brute force search through all triangles */
-    for (uint32_t idx = 0; idx < m_mesh->getTriangleCount(); ++idx) {
-        float u, v, t;
-        if (m_mesh->rayIntersect(idx, ray, u, v, t)) {
-            /* An intersection was found! Can terminate
-               immediately if this is a shadow ray query */
-            if (shadowRay)
-                return true;
-            ray.maxt = its.t = t;
-            its.uv = Point2f(u, v);
-            its.mesh = m_mesh;
-            f = idx;
-            foundIntersection = true;
-        }
-    }
+	//foundIntersection = bf(ray, its, shadowRay, f);
+	//foundIntersection = search_(root, m_bbox, ray, its, shadowRay, f);
+	foundIntersection = search(root, m_bbox, ray, its, shadowRay, f);
+
+	if (shadowRay && foundIntersection)
+		return true;
 
     if (foundIntersection) {
         /* At this point, we now know that there is an intersection,

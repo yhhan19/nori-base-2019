@@ -124,6 +124,10 @@ public:
      */
     bool rayIntersect(uint32_t index, const Ray3f &ray, float &u, float &v, float &t) const;
 
+	bool axis(Vector3f ex, const Vector3f * u, const Vector3f * v, Vector3f a) const;
+
+	bool boundingBoxIntersect(uint32_t index, const BoundingBox3f & box) const;
+
     /// Return a pointer to the vertex positions
     const MatrixXf &getVertexPositions() const { return m_V; }
 
