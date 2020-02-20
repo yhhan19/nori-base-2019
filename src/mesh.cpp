@@ -38,6 +38,44 @@ void Mesh::activate() {
         m_bsdf = static_cast<BSDF *>(
             NoriObjectFactory::createInstance("diffuse", PropertyList()));
     }
+	dpdf = DiscretePDF(0);
+	s = 0;
+	for (uint32_t idx = 0; idx < getTriangleCount(); ++idx) {
+		dpdf.append(surfaceArea(idx));
+		s += surfaceArea(idx);
+	}
+	dpdf.normalize();
+	int N = 5;
+	for (int i = 1; i < N; i++) {
+		for (int j = 1; j < N; j++) {
+			for (int k = 1; k < N; k++) {
+				float fi = i / (float)N, fj = j / (float)N, fk = k / (float)N;
+				Mesh::samplePoint sp = sample(Point3f(fi, fj, fk));
+				cout << sp.p.toString() << endl;
+			}
+			cout << endl;
+		}
+		cout << endl;
+	}
+}
+
+Mesh::samplePoint Mesh::sampleTriangle(int index, Point2f p) {
+	uint32_t i0 = m_F(0, index), i1 = m_F(1, index), i2 = m_F(2, index);
+	const Point3f p0 = m_V.col(i0), p1 = m_V.col(i1), p2 = m_V.col(i2);
+	float a = 1 - sqrt(1 - p.coeff(0)), b = p.coeff(1) * sqrt(1 - p.coeff(0)), c = 1 - a - b;
+	samplePoint sp;
+	float x = p0.x() * a + p1.x() * b + p2.x() * c, y = p0.y() * a + p1.y() * b + p2.y() * c, z = p0.z() * a + p1.z() * b + p2.z() * c;
+	sp.p = Point3f(x, y, z);
+	Vector3f v = (p1 - p0).cross(p2 - p0);
+	float n = v.norm();
+	sp.n = Normal3f(v.x() / n, v.y() / n, v.z() / n);
+	sp.pdf = surfaceArea(index) / s;
+	return sp;
+}
+
+Mesh::samplePoint Mesh::sample(Point3f p) {
+	uint32_t index = dpdf.sample(p.coeff(0));
+	return sampleTriangle(index, Point2f(p.coeff(1), p.coeff(2)));
 }
 
 float Mesh::surfaceArea(uint32_t index) const {
@@ -89,7 +127,7 @@ bool Mesh::rayIntersect(uint32_t index, const Ray3f &ray, float &u, float &v, fl
 
 
 bool Mesh::axis(Vector3f ex, const Vector3f *u, const Vector3f *v, Vector3f a) const {
-	float r = 0, min, max;
+	float r = 0, min = 0, max = 0;
 	for (int k = 0; k < 3; k++)
 		r += ex.dot(u[k]) * fabs(u[k].dot(a));
 	for (int k = 0; k < 3; k++) {

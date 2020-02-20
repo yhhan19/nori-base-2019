@@ -20,6 +20,7 @@
 
 #include <nori/object.h>
 #include <nori/frame.h>
+#include <nori/dpdf.h>
 #include <nori/bbox.h>
 
 NORI_NAMESPACE_BEGIN
@@ -44,7 +45,7 @@ struct Intersection {
     /// Geometric frame (based on the true geometry)
     Frame geoFrame;
     /// Pointer to the associated mesh
-    const Mesh *mesh;
+	const Mesh *mesh;
 
     /// Create an uninitialized intersection record
     Intersection() : mesh(nullptr) { }
@@ -73,11 +74,26 @@ struct Intersection {
  */
 class Mesh : public NoriObject {
 public:
+
+	DiscretePDF dpdf;
+
+	float s;
+
+	typedef struct samplePoint {
+		Point3f p;
+		Normal3f n;
+		float pdf;
+	} samplePoint;
+
     /// Release all memory
     virtual ~Mesh();
 
     /// Initialize internal data structures (called once by the XML parser)
     virtual void activate();
+
+	Mesh::samplePoint sampleTriangle(int index, Point2f p);
+
+	Mesh::samplePoint sample(Point3f p);
 
     /// Return the total number of triangles in this hsape
     uint32_t getTriangleCount() const { return (uint32_t) m_F.cols(); }
